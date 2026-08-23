@@ -48,21 +48,30 @@ class XtXaridSource(BaseSource):
     def __init__(self) -> None:
         self.client = httpx.AsyncClient(headers=HEADERS, timeout=20.0)
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=2, max=10))
-    async def _rpc(self, ref: str, limit: int = 20) -> list[dict]:
-        payload = {
-            "id": 1,
-            "jsonrpc": "2.0",
-            "method": "ref",
-            "params": {"ref": ref, "op": "read", "limit": limit},
-        }
-        response = await self.client.post(API_URL, json=payload)
-        response.raise_for_status()
-        data = response.json()
-        if "result" in data and isinstance(data["result"], list):
-            return data["result"]
-        if "error" in data:
-            logger.warning(f"xt-xarid.uz {ref}: {data['error'].get('message', '')[:100]}")
+    async def _rpc(self, ref: str, limit: int = 50, offset: int = 0) -> list[dict]:
+        # Try newest-first ordering; fall back to no ordering if API rejects it
+        for order in ("create_date desc", "publicated_at desc", None):
+            params: dict = {"ref": ref, "op": "read", "limit": limit, "offset": offset}
+            if order:
+                params["order"] = order
+            payload = {"id": 1, "jsonrpc": "2.0", "method": "ref", "params": params}
+            try:
+                response = await self.client.post(API_URL, json=payload)
+                response.raise_for_status()
+                data = response.json()
+                if "result" in data and isinstance(data["result"], list):
+                    if order:
+                        logger.debug(f"xt-xarid.uz {ref}: ordered by '{order}'")
+                    return data["result"]
+                if "error" in data:
+                    msg = data["error"].get("message", "")
+                    logger.warning(f"xt-xarid.uz {ref} order='{order}': {msg[:100]}")
+                    if order:
+                        continue  # retry without this order field
+                    return []
+            except Exception as e:
+                logger.error(f"xt-xarid.uz {ref} rpc error: {e}")
+                raise
         return []
 
     def _to_listing(self, item: dict) -> Optional[ListingData]:
@@ -117,19 +126,20 @@ class XtXaridSource(BaseSource):
         )
 
     async def get_latest(self, page: int = 1) -> list[ListingData]:
-        limit = 20
+        limit = 50
+        offset = (page - 1) * limit
         all_listings: list[ListingData] = []
         seen_ids: set[str] = set()
 
         for ref in PUBLIC_REFS:
             try:
-                items = await self._rpc(ref, limit=limit)
+                items = await self._rpc(ref, limit=limit, offset=offset)
                 for item in items:
                     listing = self._to_listing(item)
                     if listing and listing.external_id not in seen_ids:
                         seen_ids.add(listing.external_id)
                         all_listings.append(listing)
-                logger.debug(f"xt-xarid.uz {ref}: {len(items)} items")
+                logger.debug(f"xt-xarid.uz {ref}: {len(items)} items fetched")
             except Exception as e:
                 logger.error(f"xt-xarid.uz {ref} failed: {e}")
 

@@ -35,10 +35,7 @@ async def run_check(app: Application) -> None:
         rules = session.query(WatchRule).filter_by(enabled=True).all()
         users = {u.id: u for u in session.query(User).all()}
 
-        # Collect keywords to search
-        keywords = list({r.keyword for r in rules if r.keyword})
-        if not keywords:
-            keywords = [""]  # fetch latest if no rules
+        keywords = {r.keyword.lower() for r in rules if r.keyword}
 
         for source_name, source in [
             ("cooperation", _cooperation),
@@ -52,13 +49,8 @@ async def run_check(app: Application) -> None:
                     logger.warning(f"Watcher: {source_name} is not reachable, skipping")
                     continue
 
-                all_data = []
-                for keyword in keywords:
-                    if keyword:
-                        data = await source.search(keyword)
-                    else:
-                        data = await source.get_latest()
-                    all_data.extend(data)
+                # Fetch all listings once — no per-keyword API calls
+                all_data = await source.get_latest()
 
                 logger.info(f"Watcher: {source_name} returned {len(all_data)} listings")
 
