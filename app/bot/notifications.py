@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 SOURCE_LABELS = {
     "cooperation": "Cooperation",
     "new_cooperation": "New Cooperation",
+    "xt_xarid": "XT-Xarid",
 }
 
 

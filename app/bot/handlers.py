@@ -156,6 +156,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
     coop_status = SOURCE_STATUS.get("cooperation", "unknown")
     new_coop_status = SOURCE_STATUS.get("new_cooperation", "unknown")
+    xt_xarid_status = SOURCE_STATUS.get("xt_xarid", "unknown")
 
     status_emoji = lambda s: "✅" if s == "ok" else "❌"
 
@@ -169,7 +170,8 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         f"🔔 Yuborilgan xabarlar: {total_notifs}\n\n"
         f"🌐 *Manbalar:*\n"
         f"{status_emoji(coop_status)} Cooperation: `{coop_status}`\n"
-        f"{status_emoji(new_coop_status)} New Cooperation: `{new_coop_status}`"
+        f"{status_emoji(new_coop_status)} New Cooperation: `{new_coop_status}`\n"
+        f"{status_emoji(xt_xarid_status)} XT-Xarid: `{xt_xarid_status}`"
     )
 
     await update.message.reply_text(text, parse_mode="Markdown")
@@ -316,13 +318,19 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await query.edit_message_text("🆕 Hozircha yangi savdo yo'q.")
             return
 
-        label = {"all": "Barchasi", "cooperation": "Cooperation", "new_cooperation": "New Cooperation"}.get(source_filter, source_filter)
+        label = {
+            "all": "Barchasi",
+            "cooperation": "Cooperation",
+            "new_cooperation": "New Cooperation",
+            "xt_xarid": "XT-Xarid",
+        }.get(source_filter, source_filter)
         lines = [f"🆕 *Yangi savdolar — {label}:*\n"]
         for lst in listings:
             lines.append(
                 f"• [{truncate(lst.title, 60)}]({lst.source_url or '#'})\n"
                 f"  {format_price(lst.price)}"
             )
+        await query.answer()
         await query.edit_message_text(
             "\n".join(lines), parse_mode="Markdown", disable_web_page_preview=True
         )
