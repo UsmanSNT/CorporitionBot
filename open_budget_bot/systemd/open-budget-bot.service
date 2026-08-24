@@ -1,0 +1,17 @@
+[Unit]
+Description=Open Budget Telegram Bot
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/open-budget-bot
+EnvironmentFile=/home/ubuntu/open-budget-bot/.env
+ExecStart=/home/ubuntu/open-budget-bot/.venv/bin/python main.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
