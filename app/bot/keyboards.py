@@ -1,14 +1,23 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 
 
-def main_menu_keyboard() -> ReplyKeyboardMarkup:
+def main_menu_keyboard(is_admin: bool = False) -> ReplyKeyboardMarkup:
     buttons = [
         ["🔎 Kuzatuvlar", "➕ Kuzatuv qo'shish"],
         ["🔥 Eng arzon", "🆕 Yangi savdolar"],
         ["📉 Narxi tushganlar", "🔍 Qidirish"],
-        ["⚙️ Sozlamalar", "📊 Holat"],
+        ["📊 Holat", "👥 Adminlar"] if is_admin else ["📊 Holat", "ℹ️ Yordam"],
     ]
     return ReplyKeyboardMarkup(buttons, resize_keyboard=True)
+
+
+def admin_users_keyboard(users: list, action: str = "makeadmin") -> InlineKeyboardMarkup:
+    rows = []
+    for user_id, username, first_name in users:
+        label = f"@{username}" if username else (first_name or str(user_id))
+        rows.append([InlineKeyboardButton(label, callback_data=f"admin:{action}:{user_id}")])
+    rows.append([InlineKeyboardButton("❌ Yopish", callback_data="admin:close")])
+    return InlineKeyboardMarkup(rows)
 
 
 def source_keyboard() -> InlineKeyboardMarkup:

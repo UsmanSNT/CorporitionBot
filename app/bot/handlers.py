@@ -9,9 +9,10 @@ from app.database import get_session
 from app.models import User, WatchRule, Notification
 from app.services.listing_service import get_cheapest, get_latest_listings, search_listings
 from app.services.watcher import SOURCE_STATUS
-from app.bot.security import authorized_only
+from app.bot.security import authorized_only, is_main_admin
 from app.bot.keyboards import (
     main_menu_keyboard, rule_action_keyboard, latest_filter_keyboard,
+    admin_users_keyboard,
 )
 from app.utils.money import format_price
 from app.utils.text import truncate
@@ -39,12 +40,16 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     with get_session() as session:
         _get_or_create_user(session, tg_user, update.effective_chat.id)
 
+    _is_admin = is_main_admin(tg_user.id)
     await update.message.reply_text(
         f"Salom, {tg_user.first_name}! 👋\n\n"
-        "Men cooperation.uz va new.cooperation.uz saytlarini kuzatib, "
-        "mos mahsulotlar topilganda sizga xabar beraman.\n\n"
-        "Boshlash uchun quyidagi menyudan foydalaning:",
-        reply_markup=main_menu_keyboard(),
+        "Men Uzbekiston davlat xarid saytlarini kuzataman:\n"
+        "• cooperation.uz\n"
+        "• new.cooperation.uz\n"
+        "• xt-xarid.uz\n\n"
+        "Yangi savdo chiqsa — darhol xabar beraman!\n\n"
+        "👇 Menyudan boshlang:",
+        reply_markup=main_menu_keyboard(is_admin=_is_admin),
     )
 
 
@@ -179,19 +184,62 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 @authorized_only
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    tg_user = update.effective_user
+    _is_admin = is_main_admin(tg_user.id)
+    admin_section = "\n\n👑 *Admin buyruqlari:*\n/admins — Adminlar ro'yxati va boshqaruv" if _is_admin else ""
     text = (
-        "📖 *Buyruqlar:*\n\n"
-        "/start — Bosh menyu\n"
-        "/add — Yangi kuzatuv qo'shish\n"
-        "/list — Kuzatuvlar ro'yxati\n"
-        "/cheap [so'z] — Eng arzon savdolar\n"
-        "/latest — Yangi savdolar\n"
-        "/search — Qidirish\n"
-        "/status — Bot holati\n"
-        "/help — Yordam\n"
-        "/cancel — Amalni bekor qilish"
+        "📖 *Yordam*\n\n"
+        "🔎 *Kuzatuvlar* — qo'shgan kuzatuvlaringiz\n"
+        "➕ *Kuzatuv qo'shish* — yangi kuzatuv yaratish\n"
+        "🆕 *Yangi savdolar* — eng so'nggi e'lonlar\n"
+        "🔥 *Eng arzon* — arzon savdolar\n"
+        "📉 *Narxi tushganlar* — narxi pasaygan savdolar\n"
+        "🔍 *Qidirish* — kalit so'z bo'yicha qidirish\n"
+        "📊 *Holat* — bot va manbalar holati\n\n"
+        "💡 *Maslahat:* Kuzatuv qo'shing, yangi savdo chiqsa avtomatik xabar olasiz!"
+        + admin_section
     )
-    await update.message.reply_text(text, parse_mode="Markdown")
+    await update.message.reply_text(text, parse_mode="Markdown", reply_markup=main_menu_keyboard(is_admin=_is_admin))
+
+
+@authorized_only
+async def cmd_admins(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    tg_user = update.effective_user
+    if not is_main_admin(tg_user.id):
+        await update.message.reply_text("❌ Bu buyruq faqat asosiy admin uchun.")
+        return
+
+    with get_session() as session:
+        all_users = session.query(User).all()
+        user_data = [(u.telegram_user_id, u.username, u.first_name, u.is_admin) for u in all_users]
+
+    if not user_data:
+        await update.message.reply_text("Hozircha bot foydalanuvchilari yo'q.")
+        return
+
+    lines = ["👥 *Adminlar va foydalanuvchilar:*\n"]
+    for uid, uname, fname, is_adm in user_data:
+        role = "👑 Asosiy admin" if uid == config.TELEGRAM_ADMIN_USER_ID else ("🔑 Admin" if is_adm else "👤 Foydalanuvchi")
+        name = f"@{uname}" if uname else (fname or str(uid))
+        lines.append(f"{role}: {name} (`{uid}`)")
+
+    non_admins = [(uid, uname, fname) for uid, uname, fname, is_adm in user_data
+                  if not is_adm and uid != config.TELEGRAM_ADMIN_USER_ID]
+    admins = [(uid, uname, fname) for uid, uname, fname, is_adm in user_data
+              if is_adm and uid != config.TELEGRAM_ADMIN_USER_ID]
+
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    rows = []
+    for uid, uname, fname in admins:
+        label = f"@{uname}" if uname else (fname or str(uid))
+        rows.append([InlineKeyboardButton(f"❌ {label} ni o'chirish", callback_data=f"admin:remove:{uid}")])
+    rows.append([InlineKeyboardButton("➕ Admin qo'shish", callback_data="admin:addlist")])
+
+    await update.message.reply_text(
+        "\n".join(lines),
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(rows) if rows else None,
+    )
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -203,7 +251,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     MENU_BUTTONS = {
         "🔎 Kuzatuvlar", "🔥 Eng arzon", "🆕 Yangi savdolar",
         "🔍 Qidirish", "📊 Holat", "📉 Narxi tushganlar",
-        "⚙️ Sozlamalar", "➕ Kuzatuv qo'shish",
+        "⚙️ Sozlamalar", "➕ Kuzatuv qo'shish", "👥 Adminlar", "ℹ️ Yordam",
     }
     if text in MENU_BUTTONS:
         context.user_data.pop("awaiting_search", None)
@@ -223,11 +271,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if text == "📉 Narxi tushganlar":
         await _show_price_drops(update)
         return
+    if text == "👥 Adminlar":
+        return await cmd_admins(update, context)
+    if text == "ℹ️ Yordam":
+        return await cmd_help(update, context)
     if text == "⚙️ Sozlamalar":
-        await update.message.reply_text(
-            "⚙️ Sozlamalar hozircha mavjud emas.\n/help buyrug'ini ko'ring."
-        )
-        return
+        return await cmd_help(update, context)
     if text == "➕ Kuzatuv qo'shish":
         from app.bot.conversations import add_start
         return await add_start(update, context)
@@ -363,3 +412,53 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await query.message.reply_text(
             "\n".join(lines), parse_mode="Markdown", disable_web_page_preview=True
         )
+
+    elif data.startswith("admin:"):
+        tg_user = update.effective_user
+        if not is_main_admin(tg_user.id):
+            await query.answer("❌ Ruxsat yo'q.", show_alert=True)
+            return
+
+        parts = data.split(":")
+        action = parts[1]
+
+        if action == "close":
+            await query.edit_message_reply_markup(reply_markup=None)
+            await query.answer()
+
+        elif action == "addlist":
+            with get_session() as session:
+                non_admins = session.query(User).filter_by(is_admin=False).all()
+                users = [(u.telegram_user_id, u.username, u.first_name) for u in non_admins
+                         if u.telegram_user_id != config.TELEGRAM_ADMIN_USER_ID]
+            if not users:
+                await query.answer("Barcha foydalanuvchilar allaqachon admin.", show_alert=True)
+                return
+            await query.answer()
+            await query.edit_message_reply_markup(reply_markup=admin_users_keyboard(users, "makeadmin"))
+
+        elif action == "makeadmin":
+            target_id = int(parts[2])
+            with get_session() as session:
+                user = session.query(User).filter_by(telegram_user_id=target_id).first()
+                if user:
+                    user.is_admin = True
+                    name = f"@{user.username}" if user.username else (user.first_name or str(target_id))
+                    await query.answer(f"✅ {name} admin qilindi!", show_alert=True)
+                else:
+                    await query.answer("Foydalanuvchi topilmadi.", show_alert=True)
+                    return
+            await cmd_admins(update, context)
+
+        elif action == "remove":
+            target_id = int(parts[2])
+            with get_session() as session:
+                user = session.query(User).filter_by(telegram_user_id=target_id).first()
+                if user:
+                    user.is_admin = False
+                    name = f"@{user.username}" if user.username else (user.first_name or str(target_id))
+                    await query.answer(f"✅ {name} admin emas.", show_alert=True)
+                else:
+                    await query.answer("Foydalanuvchi topilmadi.", show_alert=True)
+                    return
+            await cmd_admins(update, context)

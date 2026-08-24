@@ -13,7 +13,7 @@ from app.database import init_db
 from app.utils.logging import setup_logging
 from app.bot.handlers import (
     cmd_start, cmd_list, cmd_cheap, cmd_latest,
-    cmd_search, cmd_status, cmd_help,
+    cmd_search, cmd_status, cmd_help, cmd_admins,
     handle_text, handle_callback,
 )
 from app.bot.conversations import build_add_conversation
@@ -66,6 +66,7 @@ def build_app() -> Application:
     app.add_handler(CommandHandler("search", cmd_search))
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("help", cmd_help))
+    app.add_handler(CommandHandler("admins", cmd_admins))
 
     # Callback queries (inline buttons)
     app.add_handler(CallbackQueryHandler(handle_callback))
