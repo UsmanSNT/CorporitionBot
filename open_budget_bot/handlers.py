@@ -1,7 +1,7 @@
 import logging
 import os
 import glob as glob_module
-from datetime import datetime, timedelta
+from datetime import datetime, date, timedelta
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 from telegram.ext import ContextTypes, Application
@@ -25,11 +25,29 @@ def _project_text() -> str:
     return "\n".join(lines)
 
 
-def _main_keyboard() -> InlineKeyboardMarkup:
+def _referral_link(user_id: int) -> str:
+    if config.BOT_USERNAME:
+        return f"https://t.me/{config.BOT_USERNAME}?start=ref_{user_id}"
+    return ""
+
+
+def _main_keyboard(has_voted: bool = False, clicked: bool = False) -> InlineKeyboardMarkup:
+    rows = [[InlineKeyboardButton("🗳 Ovoz berish", callback_data="goto_vote")]]
+    if clicked and not has_voted:
+        rows.append([InlineKeyboardButton("✅ Ovoz berdim", callback_data="voted")])
+    if not has_voted:
+        rows.append([InlineKeyboardButton("🔔 Eslatma", callback_data="reminder")])
+    rows.append([
+        InlineKeyboardButton("📢 Do'stlarga ulash", callback_data="share"),
+        InlineKeyboardButton("ℹ️ Maxfiylik", callback_data="privacy"),
+    ])
+    return InlineKeyboardMarkup(rows)
+
+
+def _voted_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🗳 Ovoz berish", url=config.VOTE_URL)],
-        [InlineKeyboardButton("✅ Ovoz berdim", callback_data="voted"),
-         InlineKeyboardButton("🔔 Eslatma", callback_data="reminder")],
+        [InlineKeyboardButton("🗳 Rasmiy sayt", callback_data="goto_vote")],
+        [InlineKeyboardButton("📢 Do'stlarga ulash", callback_data="share")],
         [InlineKeyboardButton("ℹ️ Maxfiylik", callback_data="privacy")],
     ])
 
@@ -39,27 +57,70 @@ def _reminder_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("⏰ 1 soatdan keyin", callback_data="remind:1h")],
         [InlineKeyboardButton("📅 Ertaga", callback_data="remind:1d")],
         [InlineKeyboardButton("🔕 Eslatmani bekor qilish", callback_data="remind:cancel")],
+        [InlineKeyboardButton("◀️ Orqaga", callback_data="back")],
     ])
 
 
 def _get_images() -> list[str]:
     if not config.IMAGE_DIR or not os.path.isdir(config.IMAGE_DIR):
         return []
-    exts = ("*.jpg", "*.jpeg", "*.png")
     files = []
-    for ext in exts:
+    for ext in ("*.jpg", "*.jpeg", "*.png"):
         files.extend(glob_module.glob(os.path.join(config.IMAGE_DIR, ext)))
     return sorted(files)[:10]
 
 
+def _days_left() -> int | None:
+    if not config.DEADLINE_DATE:
+        return None
+    try:
+        deadline = date.fromisoformat(config.DEADLINE_DATE)
+        return (deadline - date.today()).days
+    except ValueError:
+        return None
+
+
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    db.upsert_user(user.id, user.username, user.first_name)
+    args = context.args or []
+    referred_by = None
+    if args and args[0].startswith("ref_"):
+        try:
+            ref_id = int(args[0][4:])
+            if ref_id != user.id:
+                referred_by = ref_id
+        except ValueError:
+            pass
+
+    db.upsert_user(user.id, user.username, user.first_name, referred_by)
+
+    existing = db.get_user(user.id)
+    has_voted = bool(existing and existing["voted"])
+    clicked = bool(existing and existing["clicked_vote"])
+
+    days = _days_left()
+    deadline_line = ""
+    if days is not None and not has_voted:
+        if days == 0:
+            deadline_line = "\n\n🔴 <b>Bugun oxirgi kun! Ovoz bering!</b>"
+        elif days <= 3:
+            deadline_line = f"\n\n🟡 <b>Ovoz berishga {days} kun qoldi!</b>"
+
+    if has_voted:
+        status_line = "\n\n✅ <b>Siz ovoz bergansiz. Rahmat!</b>"
+        keyboard = _voted_keyboard()
+    elif clicked:
+        status_line = "\n\n👆 Saytga o'tdingiz. Ovoz bergach, quyidagi tugmani bosing:"
+        keyboard = _main_keyboard(has_voted=False, clicked=True)
+    else:
+        status_line = "\n\n👇 Quyidagi tugmadan rasmiy saytga o'tib ovoz bering:"
+        keyboard = _main_keyboard(has_voted=False, clicked=False)
 
     caption = (
         f"Assalomu alaykum, {user.first_name}! 👋\n\n"
         + _project_text()
-        + "\n\n👇 Quyidagi tugmadan rasmiy saytga o'tib ovoz bering:"
+        + deadline_line
+        + status_line
     )
 
     images = _get_images()
@@ -67,7 +128,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if len(images) == 1:
             with open(images[0], "rb") as f:
                 await update.message.reply_photo(
-                    photo=f, caption=caption, parse_mode="HTML", reply_markup=_main_keyboard()
+                    photo=f, caption=caption, parse_mode="HTML", reply_markup=keyboard
                 )
         else:
             media = []
@@ -80,35 +141,47 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     media.append(InputMediaPhoto(data))
             await update.message.reply_media_group(media=media)
             await update.message.reply_text(
-                "👇 Rasmiy saytga o'tib ovoz bering:", reply_markup=_main_keyboard()
+                "✅ Ovoz berildi" if has_voted else "👇 Rasmiy saytga o'tib ovoz bering:",
+                reply_markup=keyboard,
             )
     else:
-        await update.message.reply_text(caption, parse_mode="HTML", reply_markup=_main_keyboard())
+        await update.message.reply_text(caption, parse_mode="HTML", reply_markup=keyboard)
 
 
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if user.id not in config.ADMIN_IDS:
-        await update.message.reply_text("❌ Ruxsat yo'q.")
+        await update.message.reply_text("Ruxsat yo'q.")
         return
 
     stats = db.get_stats()
-    text = (
-        f"📊 <b>Statistika</b>\n\n"
-        f"👤 Botni boshlagan: <b>{stats['total']}</b>\n"
-        f"🔗 Havolani bosgan: <b>{stats['clicked']}</b>\n"
-        f"✅ «Ovoz berdim» degan: <b>{stats['voted']}</b>\n"
-        f"🔔 Eslatma so'ragan: <b>{stats['reminded']}</b>"
-    )
-    await update.message.reply_text(text, parse_mode="HTML")
+    top = db.get_top_referrers(5)
+
+    lines = [
+        "📊 <b>Statistika</b>\n",
+        f"👤 Boshlagan: <b>{stats['total']}</b>",
+        f"🔗 Saytga o'tgan: <b>{stats['clicked']}</b>",
+        f"✅ Ovoz bergan: <b>{stats['voted']}</b>",
+        f"🔔 Eslatma so'ragan: <b>{stats['reminded']}</b>",
+        f"📢 Referral orqali kelgan: <b>{stats['via_referral']}</b>",
+    ]
+    if top:
+        lines.append("\n🏆 <b>Eng ko'p olib kelganlar:</b>")
+        for i, row in enumerate(top, 1):
+            name = row["first_name"] or row["username"] or str(row["user_id"])
+            lines.append(f"{i}. {name} — {row['referral_count']} kishi")
+
+    days = _days_left()
+    if days is not None:
+        lines.append(f"\n⏰ Muddatga: <b>{days} kun</b>")
+
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
 
 async def cmd_delete_me(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    db.delete_user(user.id)
+    db.delete_user(update.effective_user.id)
     await update.message.reply_text(
-        "🗑 Sizning barcha ma'lumotlaringiz o'chirildi.\n"
-        "Botdan yana foydalanish uchun /start yozing."
+        "Ma'lumotlaringiz o'chirildi. Yana foydalanish uchun /start yozing."
     )
 
 
@@ -116,13 +189,11 @@ async def cmd_privacy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "🔒 <b>Maxfiylik siyosati</b>\n\n"
         "Bot faqat quyidagi ma'lumotlarni saqlaydi:\n"
-        "• Telegram foydalanuvchi ID\n"
-        "• Ism va username\n"
+        "• Telegram foydalanuvchi ID, ism, username\n"
         "• Botni boshlagan vaqt\n"
-        "• Havolani bosganmi (ha/yo'q)\n"
-        "• «Ovoz berdim» deb belgilaganmi\n"
+        "• Saytga o'tganmi, ovoz berganmi\n"
         "• Eslatma vaqti\n\n"
-        "Bot hech qanday parol, SMS yoki shaxsiy hujjat so'ramaydi.\n"
+        "Bot hech qanday parol yoki shaxsiy hujjat so'ramaydi.\n"
         "Ma'lumotlarni o'chirish: /delete_me"
     )
     await update.message.reply_text(text, parse_mode="HTML")
@@ -134,75 +205,146 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
 
     db.upsert_user(user.id, user.username, user.first_name)
+    user_row = db.get_user(user.id)
+    has_voted = bool(user_row and user_row["voted"])
+    clicked = bool(user_row and user_row["clicked_vote"])
 
-    if data == "voted":
-        existing = db.get_user(user.id)
-        if existing and existing["voted"]:
-            await query.answer("Siz allaqachon ovoz bergan sifatida belgilangansiiz ✅", show_alert=False)
-            return
-        db.mark_voted(user.id)
-        await query.answer("✅ Rahmat! Ovozingiz hisobga olindi.", show_alert=True)
-        await query.edit_message_text(
-            _project_text() + "\n\n✅ <b>Ovoz berildi! Rahmat!</b>\n\nBu bot faqat sizning ixtiyoriy belgilashingizni saqlaydi.",
+    if data == "goto_vote":
+        db.mark_clicked_vote(user.id)
+        await query.answer()
+        await query.edit_message_reply_markup(
+            reply_markup=_main_keyboard(has_voted=False, clicked=True)
+        )
+        await context.bot.send_message(
+            chat_id=user.id,
+            text=(
+                f"🗳 <b>Rasmiy ovoz berish sahifasi:</b>\n{config.VOTE_URL}\n\n"
+                "Ovoz bergach, qaytib <b>✅ Ovoz berdim</b> tugmasini bosing."
+            ),
             parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🗳 Rasmiy sayt", url=config.VOTE_URL)],
-                [InlineKeyboardButton("ℹ️ Maxfiylik", callback_data="privacy")],
-            ])
         )
 
+    elif data == "voted":
+        if has_voted:
+            await query.answer("Siz allaqachon ovoz bergansiz ✅", show_alert=False)
+            return
+        if not clicked:
+            await query.answer(
+                "Avval 🗳 Ovoz berish tugmasini bosib, rasmiy saytda ovoz bering.",
+                show_alert=True,
+            )
+            return
+        db.mark_voted(user.id)
+        await query.answer("✅ Rahmat!", show_alert=False)
+        await query.edit_message_reply_markup(reply_markup=_voted_keyboard())
+        ref_link = _referral_link(user.id)
+        share_note = (
+            f"\n\n📢 Do'stlaringizni ham taklif qiling:\n<code>{ref_link}</code>"
+            if ref_link else ""
+        )
+        await context.bot.send_message(
+            chat_id=user.id,
+            text=(
+                "🎉 <b>Rahmat!</b>\n\n"
+                f"Siz <b>{config.PROJECT_TITLE}</b> loyihasiga ovoz berdingiz.\n"
+                "Bu ovoz mahallamizning kelajagiga qo'shgan hissangiz!"
+                + share_note
+            ),
+            parse_mode="HTML",
+        )
+
+    elif data == "share":
+        await query.answer()
+        ref_link = _referral_link(user.id)
+        if ref_link:
+            share_text = (
+                f"📣 <b>Siz ham ovoz bering!</b>\n\n"
+                f"{config.PROJECT_TITLE}\n"
+                f"📍 {config.PROJECT_REGION}\n\n"
+                f"Mahallamizdagi yo'l muammosini hal qilish uchun ovoz bering!\n\n"
+                f"👉 {ref_link}\n\n"
+                f"Muddati: {config.VOTING_DEADLINE}"
+            )
+            await query.edit_message_text(
+                share_text + "\n\n<i>Yuqoridagi matnni nusxalab do'stlaringizga yuboring.</i>",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("◀️ Orqaga", callback_data="back")]
+                ]),
+            )
+        else:
+            share_text = (
+                f"📣 <b>Siz ham ovoz bering!</b>\n\n"
+                f"{config.PROJECT_TITLE}\n"
+                f"📍 {config.PROJECT_REGION}\n\n"
+                f"👉 {config.VOTE_URL}\n\n"
+                f"Muddati: {config.VOTING_DEADLINE}"
+            )
+            await query.edit_message_text(
+                share_text + "\n\n<i>Nusxalab do'stlaringizga yuboring.</i>",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("◀️ Orqaga", callback_data="back")]
+                ]),
+            )
+
     elif data == "reminder":
-        existing = db.get_user(user.id)
-        if existing and existing["voted"]:
+        if has_voted:
             await query.answer("Siz allaqachon ovoz bergansiz ✅", show_alert=True)
             return
         await query.answer()
         await query.edit_message_text(
             "🔔 <b>Eslatma</b>\n\nQachon eslatma yuboraylik?",
             parse_mode="HTML",
-            reply_markup=_reminder_keyboard()
+            reply_markup=_reminder_keyboard(),
         )
 
     elif data.startswith("remind:"):
         choice = data.split(":")[1]
         if choice == "cancel":
             db.clear_reminder(user.id)
-            await query.answer("🔕 Eslatma bekor qilindi.", show_alert=False)
+            await query.answer("Eslatma bekor qilindi.", show_alert=False)
         else:
             now = datetime.utcnow()
-            if choice == "1h":
-                remind_at = now + timedelta(hours=1)
-                label = "1 soatdan keyin"
-            else:
-                remind_at = now + timedelta(days=1)
-                label = "ertaga"
+            remind_at = now + (timedelta(hours=1) if choice == "1h" else timedelta(days=1))
+            label = "1 soatdan keyin" if choice == "1h" else "ertaga"
             db.set_reminder(user.id, remind_at.strftime("%Y-%m-%d %H:%M:%S"))
-            await query.answer(f"✅ {label} eslatma yuboriladi!", show_alert=True)
-
+            await query.answer(f"Eslatma {label} yuboriladi!", show_alert=True)
         await query.edit_message_text(
             _project_text() + "\n\n👇 Rasmiy saytga o'tib ovoz bering:",
             parse_mode="HTML",
-            reply_markup=_main_keyboard()
+            reply_markup=_main_keyboard(has_voted=False, clicked=clicked),
         )
 
     elif data == "privacy":
         await query.answer()
-        text = (
-            "🔒 <b>Maxfiylik</b>\n\n"
-            "Saqlanadigan ma'lumotlar: ID, ism, username, havolani bosganmi, «Ovoz berdim» belgilashmi, eslatma vaqti.\n\n"
-            "O'chirish: /delete_me"
-        )
         await query.edit_message_text(
-            text, parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Orqaga", callback_data="back")]])
+            "🔒 <b>Maxfiylik</b>\n\n"
+            "Saqlanadigan: ID, ism, username, havolani bosganmi, ovoz berganmi, eslatma vaqti.\n\n"
+            "O'chirish: /delete_me",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("◀️ Orqaga", callback_data="back")]
+            ]),
         )
 
     elif data == "back":
         await query.answer()
+        user_row2 = db.get_user(user.id)
+        hv = bool(user_row2 and user_row2["voted"])
+        cl = bool(user_row2 and user_row2["clicked_vote"])
+        keyboard = _voted_keyboard() if hv else _main_keyboard(hv, cl)
+        days = _days_left()
+        deadline_line = ""
+        if days is not None and not hv:
+            if days == 0:
+                deadline_line = "\n\n🔴 <b>Bugun oxirgi kun!</b>"
+            elif days <= 3:
+                deadline_line = f"\n\n🟡 <b>{days} kun qoldi!</b>"
         await query.edit_message_text(
-            _project_text() + "\n\n👇 Rasmiy saytga o'tib ovoz bering:",
+            _project_text() + deadline_line + "\n\n👇 Rasmiy saytga o'tib ovoz bering:",
             parse_mode="HTML",
-            reply_markup=_main_keyboard()
+            reply_markup=keyboard,
         )
 
 
@@ -210,22 +352,56 @@ async def send_due_reminders(app: Application):
     due = db.get_due_reminders()
     for row in due:
         try:
-            text = (
-                f"🔔 <b>Eslatma!</b>\n\n"
-                + _project_text()
-                + "\n\nHali ovoz bermagansiz. Rasmiy saytga o'ting:"
-            )
             await app.bot.send_message(
                 chat_id=row["user_id"],
-                text=text,
+                text=(
+                    "🔔 <b>Eslatma!</b>\n\n"
+                    + _project_text()
+                    + "\n\nHali ovoz bermagansiz. Rasmiy saytga o'ting:"
+                ),
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🗳 Ovoz berish", url=config.VOTE_URL)],
+                    [InlineKeyboardButton("🗳 Ovoz berish", callback_data="goto_vote")],
                     [InlineKeyboardButton("✅ Ovoz berdim", callback_data="voted")],
-                ])
+                ]),
             )
             db.clear_reminder(row["user_id"])
-            logger.info(f"Reminder sent to {row['user_id']}")
         except Exception as e:
-            logger.warning(f"Failed to send reminder to {row['user_id']}: {e}")
+            logger.warning(f"Reminder failed for {row['user_id']}: {e}")
             db.clear_reminder(row["user_id"])
+
+
+async def send_deadline_reminders(app: Application):
+    days = _days_left()
+    if days not in (3, 1, 0):
+        return
+    users = db.get_non_voted_users()
+    if days == 0:
+        text_extra = "🔴 <b>Bugun ovoz berish oxirgi kuni!</b>"
+        threshold = 2
+    elif days == 1:
+        text_extra = "🟡 <b>Ertaga ovoz berish muddati tugaydi!</b>"
+        threshold = 1
+    else:
+        text_extra = "🟡 <b>Ovoz berishga 3 kun qoldi!</b>"
+        threshold = 0
+
+    for row in users:
+        if row["deadline_reminded"] > threshold:
+            continue
+        try:
+            await app.bot.send_message(
+                chat_id=row["user_id"],
+                text=(
+                    text_extra + "\n\n"
+                    + _project_text()
+                    + "\n\nVaqt o'tib ketmasidan ovoz bering:"
+                ),
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🗳 Ovoz berish", callback_data="goto_vote")],
+                ]),
+            )
+            db.mark_deadline_reminded(row["user_id"])
+        except Exception as e:
+            logger.warning(f"Deadline reminder failed for {row['user_id']}: {e}")

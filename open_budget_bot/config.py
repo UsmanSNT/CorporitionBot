@@ -18,6 +18,8 @@ class Config:
     TIMEZONE: str = os.getenv("OB_TIMEZONE", "Asia/Tashkent")
     DB_PATH: str = os.getenv("OB_DB_PATH", "data/open_budget.db")
     IMAGE_DIR: str = os.getenv("OB_IMAGE_DIR", "")
+    BOT_USERNAME: str = os.getenv("OB_BOT_USERNAME", "")
+    DEADLINE_DATE: str = os.getenv("OB_DEADLINE_DATE", "")  # YYYY-MM-DD
 
     def validate(self):
         if not self.BOT_TOKEN:

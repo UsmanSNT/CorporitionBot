@@ -11,7 +11,7 @@ from config import config
 from database import init_db
 from handlers import (
     cmd_start, cmd_stats, cmd_delete_me, cmd_privacy,
-    handle_callback, send_due_reminders,
+    handle_callback, send_due_reminders, send_deadline_reminders,
 )
 
 logging.basicConfig(
@@ -30,6 +30,14 @@ async def post_init(app):
         args=[app],
         next_run_time=datetime.now() + timedelta(seconds=10),
         id="reminders",
+    )
+    scheduler.add_job(
+        send_deadline_reminders,
+        "cron",
+        hour=9,
+        minute=0,
+        args=[app],
+        id="deadline_reminders",
     )
     scheduler.start()
     app.bot_data["scheduler"] = scheduler
