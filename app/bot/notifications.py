@@ -23,11 +23,22 @@ async def send_new_listing_notification(
     region_str = f"📍 {listing.region}" if listing.region else ""
     seller_str = f"🏢 {listing.seller_name}" if listing.seller_name else ""
 
+    from datetime import timezone
+    pub_str = ""
+    if listing.published_at:
+        try:
+            dt = listing.published_at
+            pub_str = f"🕐 {dt.strftime('%d.%m.%Y %H:%M')}"
+        except Exception:
+            pass
+
     parts = [
         f"🆕 *Yangi mos savdo*",
         f"*{truncate(listing.title, 150)}*",
         f"💰 {price_str}",
     ]
+    if pub_str:
+        parts.append(pub_str)
     if qty_str:
         parts.append(qty_str)
     if region_str:

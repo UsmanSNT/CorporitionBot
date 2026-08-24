@@ -44,21 +44,25 @@ async def add_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.effective_message.reply_text(
         "➕ *Yangi kuzatuv*\n\n"
         "1-qadam: Mahsulot nomi yoki kalit so'z yozing.\n"
-        "_Masalan: konditsioner_",
+        "_Barcha yangi savdolarni olish uchun o'tkazib yuboring._",
         parse_mode="Markdown",
+        reply_markup=skip_keyboard(),
     )
     return KEYWORD
 
 
 async def got_keyword(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    keyword = update.message.text.strip()
-    if not keyword:
-        await update.message.reply_text("Kalit so'z bo'sh bo'lmasligi kerak.")
-        return KEYWORD
-
-    context.user_data["keyword"] = keyword
-    await update.message.reply_text(
-        f"✅ Kalit so'z: *{keyword}*\n\n"
+    if update.callback_query:
+        await update.callback_query.answer()
+        context.user_data["keyword"] = ""
+        keyword = ""
+    else:
+        keyword = update.message.text.strip()
+        context.user_data["keyword"] = keyword
+    keyword_label = keyword if keyword else "Barchasi (filtrsiz)"
+    msg = update.callback_query.message if update.callback_query else update.message
+    await msg.reply_text(
+        f"✅ Kalit so'z: *{keyword_label}*\n\n"
         "2-qadam: Maksimal narx (so'm)?\n"
         "_Masalan: 3500000_",
         parse_mode="Markdown",
@@ -167,9 +171,10 @@ async def got_notify_type(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         notify_parts.append("Narx tushishi")
     notify_str = " + ".join(notify_parts)
 
+    keyword_label = keyword if keyword else "Barchasi (filtrsiz)"
     summary = (
-        f"📋 *Kuzatuv ma'lumotlari:*\n\n"
-        f"🔑 Kalit so'z: `{keyword}`\n"
+        f"📋 <b>Kuzatuv ma'lumotlari:</b>\n\n"
+        f"🔑 Kalit so'z: <code>{keyword_label}</code>\n"
         f"💰 Narx: {'≤ ' + format_price(max_p) if max_p else '—'}"
         f"{' / ≥ ' + format_price(min_p) if min_p else ''}\n"
         f"📍 Hudud: {region}\n"
@@ -178,7 +183,7 @@ async def got_notify_type(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         f"Tasdiqlaysizmi?"
     )
 
-    await query.edit_message_text(summary, parse_mode="Markdown", reply_markup=confirm_keyboard())
+    await query.edit_message_text(summary, parse_mode="HTML", reply_markup=confirm_keyboard())
     return CONFIRM
 
 
@@ -236,7 +241,10 @@ def build_add_conversation() -> ConversationHandler:
             MessageHandler(filters.Regex("^➕ Kuzatuv qo'shish$"), add_start),
         ],
         states={
-            KEYWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, got_keyword)],
+            KEYWORD: [
+                CallbackQueryHandler(got_keyword, pattern="^skip$"),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, got_keyword),
+            ],
             MAX_PRICE: [
                 CallbackQueryHandler(got_max_price, pattern="^skip$"),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, got_max_price),

@@ -200,6 +200,15 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if not text:
         return
 
+    MENU_BUTTONS = {
+        "🔎 Kuzatuvlar", "🔥 Eng arzon", "🆕 Yangi savdolar",
+        "🔍 Qidirish", "📊 Holat", "📉 Narxi tushganlar",
+        "⚙️ Sozlamalar", "➕ Kuzatuv qo'shish",
+    }
+    if text in MENU_BUTTONS:
+        context.user_data.pop("awaiting_search", None)
+        context.user_data.pop("awaiting_cheap_keyword", None)
+
     # Menu buttons
     if text == "🔎 Kuzatuvlar":
         return await cmd_list(update, context)
@@ -219,6 +228,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             "⚙️ Sozlamalar hozircha mavjud emas.\n/help buyrug'ini ko'ring."
         )
         return
+    if text == "➕ Kuzatuv qo'shish":
+        from app.bot.conversations import add_start
+        return await add_start(update, context)
 
     # Awaiting inputs
     if context.user_data.get("awaiting_search"):
@@ -312,8 +324,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
         with get_session() as session:
             listings = get_latest_listings(session, src, limit=10)
+            listing_data = [(lst.title, lst.source_url, lst.price) for lst in listings]
 
-        if not listings:
+        if not listing_data:
             await query.answer("Ma'lumot yo'q.")
             await query.edit_message_text("🆕 Hozircha yangi savdo yo'q.")
             return
@@ -325,10 +338,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             "xt_xarid": "XT-Xarid",
         }.get(source_filter, source_filter)
         lines = [f"🆕 *Yangi savdolar — {label}:*\n"]
-        for lst in listings:
+        for title, source_url, price in listing_data:
             lines.append(
-                f"• [{truncate(lst.title, 60)}]({lst.source_url or '#'})\n"
-                f"  {format_price(lst.price)}"
+                f"• [{truncate(title, 60)}]({source_url or '#'})\n"
+                f"  {format_price(price)}"
             )
         await query.answer()
         await query.edit_message_text(
@@ -339,12 +352,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         keyword = data.replace("search:", "")
         with get_session() as session:
             results = search_listings(session, keyword, limit=10)
-        if not results:
+            results_data = [(lst.title, lst.source_url) for lst in results]
+        if not results_data:
             await query.answer(f"'{keyword}' bo'yicha natija yo'q.")
             return
         lines = [f"🔍 *'{keyword}':*\n"]
-        for lst in results:
-            lines.append(f"• [{truncate(lst.title, 60)}]({lst.source_url or '#'})")
+        for title, source_url in results_data:
+            lines.append(f"• [{truncate(title, 60)}]({source_url or '#'})")
         await query.answer()
         await query.message.reply_text(
             "\n".join(lines), parse_mode="Markdown", disable_web_page_preview=True

@@ -1,0 +1,16 @@
+app = 'corporition-bot'
+primary_region = 'nrt'
+
+[build]
+
+[env]
+  CHECK_INTERVAL_MINUTES = '10'
+  TIMEZONE = 'Asia/Tashkent'
+
+[[mounts]]
+  source = 'bot_data'
+  destination = '/app/data'
+
+[[vm]]
+  memory = '256mb'
+  cpus = 1

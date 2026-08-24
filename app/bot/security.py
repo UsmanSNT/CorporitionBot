@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 
 def is_authorized(user_id: int) -> bool:
-    return user_id == config.TELEGRAM_ADMIN_USER_ID
+    return user_id == config.TELEGRAM_ADMIN_USER_ID or user_id in config.TELEGRAM_EXTRA_USER_IDS
 
 
 def authorized_only(func):

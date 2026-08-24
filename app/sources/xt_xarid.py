@@ -126,24 +126,29 @@ class XtXaridSource(BaseSource):
         )
 
     async def get_latest(self, page: int = 1) -> list[ListingData]:
-        limit = 50
-        offset = (page - 1) * limit
+        from datetime import date
+        today = date.today()
         all_listings: list[ListingData] = []
         seen_ids: set[str] = set()
 
         for ref in PUBLIC_REFS:
             try:
-                items = await self._rpc(ref, limit=limit, offset=offset)
+                items = await self._rpc(ref, limit=100)
                 for item in items:
                     listing = self._to_listing(item)
-                    if listing and listing.external_id not in seen_ids:
-                        seen_ids.add(listing.external_id)
-                        all_listings.append(listing)
-                logger.debug(f"xt-xarid.uz {ref}: {len(items)} items fetched")
+                    if not listing or listing.external_id in seen_ids:
+                        continue
+                    if listing.published_at:
+                        pub_date = listing.published_at.date()
+                        if pub_date < today:
+                            continue
+                    seen_ids.add(listing.external_id)
+                    all_listings.append(listing)
+                logger.debug(f"xt-xarid.uz {ref}: fetched {len(items)} items")
             except Exception as e:
                 logger.error(f"xt-xarid.uz {ref} failed: {e}")
 
-        logger.info(f"xt-xarid.uz get_latest: {len(all_listings)} total listings")
+        logger.info(f"xt-xarid.uz get_latest: {len(all_listings)} today's listings")
         return all_listings
 
     async def search(self, keyword: str, page: int = 1) -> list[ListingData]:
