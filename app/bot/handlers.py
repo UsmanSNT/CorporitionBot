@@ -285,17 +285,35 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         context.user_data.pop("awaiting_search")
         with get_session() as session:
             results = search_listings(session, text, limit=10)
-        if not results:
-            await update.message.reply_text(f"'{text}' bo'yicha natija topilmadi.")
+            results_data = [
+                (
+                    lst.title, lst.source_url, lst.price, lst.currency,
+                    lst.seller_name, lst.quantity, lst.region,
+                    lst.published_at, lst.source,
+                )
+                for lst in results
+            ]
+        if not results_data:
+            await update.message.reply_text(f"🔍 <b>'{text}'</b> bo'yicha natija topilmadi.\n\nQidiruv lotin, kirill, ruscha — hammasini qidiradi.", parse_mode="HTML")
             return
-        lines = [f"🔍 *'{text}' natijalari:*\n"]
-        for lst in results:
-            lines.append(
-                f"• [{truncate(lst.title, 60)}]({lst.source_url or '#'})\n"
-                f"  {format_price(lst.price)}"
-            )
+        SOURCE_LABELS = {"cooperation": "Coop", "new_cooperation": "New Coop", "xt_xarid": "XT-Xarid"}
+        lines = [f"🔍 <b>'{text}' — qiziquvchilar ({len(results_data)} ta):</b>\n"]
+        for title, url, price, currency, org, qty, region, pub_at, source in results_data:
+            src_label = SOURCE_LABELS.get(source, source or "")
+            details = []
+            if org:
+                details.append(f"🏢 {org}")
+            if qty:
+                details.append(f"📦 {qty} dona")
+            if region:
+                details.append(f"📍 {region}")
+            if pub_at:
+                details.append(f"🕐 {pub_at.strftime('%d.%m.%Y')}")
+            price_str = format_price(price, currency or "UZS") if price else "narx ko'rsatilmagan"
+            link = f'<a href="{url}">{truncate(title, 55)}</a>' if url else truncate(title, 55)
+            lines.append(f"• {link}\n  💰 {price_str} | {src_label}" + (f"\n  {' | '.join(details)}" if details else ""))
         await update.message.reply_text(
-            "\n".join(lines), parse_mode="Markdown", disable_web_page_preview=True
+            "\n".join(lines), parse_mode="HTML", disable_web_page_preview=True
         )
         return
 

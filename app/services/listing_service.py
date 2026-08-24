@@ -96,13 +96,21 @@ def get_latest_listings(session: Session, source: str | None = None, limit: int 
 
 
 def search_listings(session: Session, keyword: str, limit: int = 20) -> list[Listing]:
-    return (
+    from app.utils.transliterate import keyword_matches
+    # Fetch a broader candidate set via SQL, then filter with script-aware matching
+    candidates = (
         session.query(Listing)
-        .filter(Listing.title.ilike(f"%{keyword}%"))
         .order_by(Listing.first_seen_at.desc())
-        .limit(limit)
+        .limit(500)
         .all()
     )
+    results = [
+        lst for lst in candidates
+        if keyword_matches(keyword, lst.title or "")
+        or keyword_matches(keyword, lst.description or "")
+        or keyword_matches(keyword, lst.seller_name or "")
+    ]
+    return results[:limit]
 
 
 def get_stats(session: Session) -> dict:
