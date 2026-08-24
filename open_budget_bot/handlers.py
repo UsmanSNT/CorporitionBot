@@ -8,6 +8,7 @@ from telegram.ext import ContextTypes, Application
 
 from config import config
 import database as db
+from openbudget_api import fetch_vote_count
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,10 @@ def _project_text() -> str:
         lines.append(f"\n{config.PROJECT_DESCRIPTION}")
     if config.VOTING_DEADLINE:
         lines.append(f"\n⏰ Muddati: <b>{config.VOTING_DEADLINE}</b>")
+    if config.INITIATIVE_UUID:
+        count = fetch_vote_count(config.INITIATIVE_UUID)
+        if count is not None:
+            lines.append(f"🗳 Rasmiy ovozlar: <b>{count}</b>")
     return "\n".join(lines)
 
 
@@ -172,11 +177,14 @@ async def cmd_holat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines = [
         "📊 <b>Bot holati</b>\n",
         f"👤 Foydalanuvchilar: <b>{stats['total']}</b>",
-        f"🔗 Saytga o'tgan: <b>{stats['clicked']}</b>",
-        f"✅ Ovoz bergan: <b>{stats['voted']}</b>",
+        f"✅ Botda tasdiqlangan: <b>{stats['voted']}</b>",
         f"📢 Referral orqali: <b>{stats['via_referral']}</b>",
-        f"\n⏰ Muddatga: <b>{deadline_str}</b>",
     ]
+    if config.INITIATIVE_UUID:
+        real_count = fetch_vote_count(config.INITIATIVE_UUID)
+        if real_count is not None:
+            lines.append(f"\n🗳 <b>Rasmiy saytdagi ovozlar: {real_count}</b>")
+    lines.append(f"\n⏰ Muddatga: <b>{deadline_str}</b>")
     await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
 
