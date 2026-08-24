@@ -48,8 +48,17 @@ def _voted_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🗳 Rasmiy sayt", callback_data="goto_vote")],
         [InlineKeyboardButton("📢 Do'stlarga ulash", callback_data="share")],
+        [InlineKeyboardButton("🏘 Mahalla reytingi", callback_data="rating")],
         [InlineKeyboardButton("ℹ️ Maxfiylik", callback_data="privacy")],
     ])
+
+
+def _mahalla_keyboard() -> InlineKeyboardMarkup:
+    rows = []
+    for m in config.MAHALLAS:
+        rows.append([InlineKeyboardButton(m, callback_data=f"mahalla:{m}")])
+    rows.append([InlineKeyboardButton("⏭ O'tkazib yuborish", callback_data="mahalla:skip")])
+    return InlineKeyboardMarkup(rows)
 
 
 def _reminder_keyboard() -> InlineKeyboardMarkup:
@@ -147,6 +156,14 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text(caption, parse_mode="HTML", reply_markup=keyboard)
 
+    # ask mahalla only on first visit and if mahallas configured
+    if config.MAHALLAS and existing and existing.get("mahalla") is None and not referred_by:
+        await update.message.reply_text(
+            "🏘 <b>Qaysi mahalladan ekansiz?</b>\n\nMahallangizni tanlang (ixtiyoriy):",
+            parse_mode="HTML",
+            reply_markup=_mahalla_keyboard(),
+        )
+
 
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -176,6 +193,85 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append(f"\n⏰ Muddatga: <b>{days} kun</b>")
 
     await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+
+
+def _format_top10() -> str:
+    top = db.get_top_referrers(10)
+    if not top:
+        return ""
+    lines = ["🏆 <b>Top-10 faollar</b>\n"]
+    medals = ["🥇", "🥈", "🥉"]
+    for i, row in enumerate(top):
+        icon = medals[i] if i < 3 else f"{i+1}."
+        name = row["first_name"] or row["username"] or str(row["user_id"])
+        uname = f"@{row['username']}" if row["username"] else ""
+        suffix = f" ({uname})" if uname else ""
+        lines.append(f"{icon} {name}{suffix} — {row['referral_count']} kishi")
+    return "\n".join(lines)
+
+
+async def cmd_top(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if user.id not in config.ADMIN_IDS:
+        await update.message.reply_text("Ruxsat yo'q.")
+        return
+    text = _format_top10()
+    if not text:
+        await update.message.reply_text("Hali referral ma'lumoti yo'q.")
+        return
+    await update.message.reply_text(text, parse_mode="HTML")
+
+
+async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if user.id not in config.ADMIN_IDS:
+        await update.message.reply_text("Ruxsat yo'q.")
+        return
+    text = " ".join(context.args) if context.args else ""
+    if not text:
+        await update.message.reply_text(
+            "Foydalanish:\n<code>/broadcast Xabar matni shu yerga</code>",
+            parse_mode="HTML",
+        )
+        return
+
+    user_ids = db.get_all_user_ids()
+    ok, fail = 0, 0
+    msg = await update.message.reply_text(f"Yuborilmoqda... (0/{len(user_ids)})")
+    for uid in user_ids:
+        try:
+            await context.bot.send_message(chat_id=uid, text=text, parse_mode="HTML")
+            ok += 1
+        except Exception:
+            fail += 1
+    await msg.edit_text(f"✅ Yuborildi: {ok} ta\n❌ Yetkazilmadi: {fail} ta")
+
+
+async def cmd_announce_top(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if user.id not in config.ADMIN_IDS:
+        await update.message.reply_text("Ruxsat yo'q.")
+        return
+    top_text = _format_top10()
+    if not top_text:
+        await update.message.reply_text("Hali referral ma'lumoti yo'q.")
+        return
+    prize_note = " ".join(context.args) if context.args else ""
+    full_text = top_text
+    if prize_note:
+        full_text += f"\n\n🎁 <b>Mukofot:</b> {prize_note}"
+    full_text += f"\n\n📣 {config.PROJECT_TITLE}\n⏰ Muddati: {config.VOTING_DEADLINE}"
+
+    user_ids = db.get_all_user_ids()
+    ok, fail = 0, 0
+    msg = await update.message.reply_text(f"E'lon yuborilmoqda... (0/{len(user_ids)})")
+    for uid in user_ids:
+        try:
+            await context.bot.send_message(chat_id=uid, text=full_text, parse_mode="HTML")
+            ok += 1
+        except Exception:
+            fail += 1
+    await msg.edit_text(f"✅ Yuborildi: {ok} ta\n❌ Yetkazilmadi: {fail} ta")
 
 
 async def cmd_delete_me(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -322,6 +418,39 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🔒 <b>Maxfiylik</b>\n\n"
             "Saqlanadigan: ID, ism, username, havolani bosganmi, ovoz berganmi, eslatma vaqti.\n\n"
             "O'chirish: /delete_me",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("◀️ Orqaga", callback_data="back")]
+            ]),
+        )
+
+    elif data.startswith("mahalla:"):
+        choice = data.split(":", 1)[1]
+        await query.answer()
+        if choice != "skip":
+            db.set_mahalla(user.id, choice)
+            await query.edit_message_text(
+                f"✅ <b>{choice}</b> mahallasi saqlandi.\n\nRahmat!",
+                parse_mode="HTML",
+            )
+        else:
+            await query.edit_message_text("Tushunildi. Keyinroq /start orqali o'rnatishingiz mumkin.")
+
+    elif data == "rating":
+        await query.answer()
+        stats = db.get_mahalla_stats()
+        if not stats:
+            await query.answer("Hali ma'lumot yo'q.", show_alert=True)
+            return
+        lines = ["🏘 <b>Mahalla reytingi</b>\n"]
+        medals = ["🥇", "🥈", "🥉"]
+        for i, row in enumerate(stats):
+            icon = medals[i] if i < 3 else f"{i+1}."
+            lines.append(f"{icon} <b>{row['mahalla']}</b> — {row['total']} kishi")
+        total_voted = sum(r["voted_count"] for r in stats)
+        lines.append(f"\n✅ Jami ovoz bergan: <b>{total_voted}</b>")
+        await query.edit_message_text(
+            "\n".join(lines),
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("◀️ Orqaga", callback_data="back")]

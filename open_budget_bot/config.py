@@ -20,6 +20,9 @@ class Config:
     IMAGE_DIR: str = os.getenv("OB_IMAGE_DIR", "")
     BOT_USERNAME: str = os.getenv("OB_BOT_USERNAME", "")
     DEADLINE_DATE: str = os.getenv("OB_DEADLINE_DATE", "")  # YYYY-MM-DD
+    MAHALLAS: list[str] = [
+        m.strip() for m in os.getenv("OB_MAHALLAS", "").split(",") if m.strip()
+    ]
 
     def validate(self):
         if not self.BOT_TOKEN:

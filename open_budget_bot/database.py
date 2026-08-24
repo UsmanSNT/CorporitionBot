@@ -31,6 +31,7 @@ def init_db():
         for col, definition in [
             ("referred_by", "INTEGER"),
             ("deadline_reminded", "INTEGER NOT NULL DEFAULT 0"),
+            ("mahalla", "TEXT"),
         ]:
             try:
                 conn.execute(f"ALTER TABLE users ADD COLUMN {col} {definition}")
@@ -93,6 +94,25 @@ def get_due_reminders() -> list[dict]:
         return [dict(r) for r in rows]
 
 
+def set_mahalla(user_id: int, mahalla: str):
+    with get_conn() as conn:
+        conn.execute("UPDATE users SET mahalla = ? WHERE user_id = ?", (mahalla, user_id))
+        conn.commit()
+
+
+def get_mahalla_stats() -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT mahalla, COUNT(*) as total,
+                   SUM(voted) as voted_count
+            FROM users
+            WHERE mahalla IS NOT NULL
+            GROUP BY mahalla
+            ORDER BY total DESC
+        """).fetchall()
+        return [dict(r) for r in rows]
+
+
 def get_non_voted_users() -> list[dict]:
     with get_conn() as conn:
         rows = conn.execute("""
@@ -141,6 +161,12 @@ def get_stats() -> dict:
         via_referral = conn.execute("SELECT COUNT(*) FROM users WHERE referred_by IS NOT NULL").fetchone()[0]
     return {"total": total, "clicked": clicked, "voted": voted,
             "reminded": reminded, "via_referral": via_referral}
+
+
+def get_all_user_ids() -> list[int]:
+    with get_conn() as conn:
+        rows = conn.execute("SELECT user_id FROM users").fetchall()
+        return [r[0] for r in rows]
 
 
 def delete_user(user_id: int):

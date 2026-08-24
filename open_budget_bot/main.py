@@ -10,7 +10,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from config import config
 from database import init_db
 from handlers import (
-    cmd_start, cmd_stats, cmd_delete_me, cmd_privacy,
+    cmd_start, cmd_stats, cmd_top, cmd_broadcast, cmd_announce_top,
+    cmd_delete_me, cmd_privacy,
     handle_callback, send_due_reminders, send_deadline_reminders,
 )
 
@@ -64,6 +65,9 @@ def main():
 
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("stats", cmd_stats))
+    app.add_handler(CommandHandler("top", cmd_top))
+    app.add_handler(CommandHandler("broadcast", cmd_broadcast))
+    app.add_handler(CommandHandler("announce_top", cmd_announce_top))
     app.add_handler(CommandHandler("delete_me", cmd_delete_me))
     app.add_handler(CommandHandler("privacy", cmd_privacy))
     app.add_handler(CallbackQueryHandler(handle_callback))
