@@ -293,8 +293,20 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 )
                 for lst in results
             ]
+        from urllib.parse import quote
+        kw_enc = quote(text)
+        site_links = (
+            f'\n\n🔗 Saytlarda to\'g\'ridan qidirish:\n'
+            f'• <a href="https://cooperation.uz/products/search?query={kw_enc}">cooperation.uz</a>\n'
+            f'• <a href="https://new.cooperation.uz/search?query={kw_enc}">new.cooperation.uz</a>\n'
+            f'• <a href="https://xt-xarid.uz/procedure/list?search={kw_enc}">xt-xarid.uz</a>'
+        )
         if not results_data:
-            await update.message.reply_text(f"🔍 <b>'{text}'</b> bo'yicha natija topilmadi.\n\nQidiruv lotin, kirill, ruscha — hammasini qidiradi.", parse_mode="HTML")
+            await update.message.reply_text(
+                f"🔍 <b>'{text}'</b> — bazada topilmadi (hozircha {500} ta savdo saqlangan)."
+                + site_links,
+                parse_mode="HTML", disable_web_page_preview=True
+            )
             return
         SOURCE_LABELS = {"cooperation": "Coop", "new_cooperation": "New Coop", "xt_xarid": "XT-Xarid"}
         lines = [f"🔍 <b>'{text}' — qiziquvchilar ({len(results_data)} ta):</b>\n"]
@@ -312,6 +324,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             price_str = format_price(price, currency or "UZS") if price else "narx ko'rsatilmagan"
             link = f'<a href="{url}">{truncate(title, 55)}</a>' if url else truncate(title, 55)
             lines.append(f"• {link}\n  💰 {price_str} | {src_label}" + (f"\n  {' | '.join(details)}" if details else ""))
+        lines.append(site_links)
         await update.message.reply_text(
             "\n".join(lines), parse_mode="HTML", disable_web_page_preview=True
         )
