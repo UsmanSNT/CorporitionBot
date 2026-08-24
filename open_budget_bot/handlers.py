@@ -402,10 +402,10 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = user.first_name or "—"
     uname = f"@{user.username}" if user.username else f"ID:{user.id}"
     caption = (
-        f"📸 <b>Ovoz tasdiqnomasi</b>\n\n"
+        f"📱 <b>SMS tasdiqnomasi keldi</b>\n\n"
         f"👤 {name} ({uname})\n"
         f"🆔 user_id: <code>{user.id}</code>\n\n"
-        f"Tasdiqlaysizmi?"
+        f"SMS screenshot ni tekshiring va tasdiqlang:"
     )
     approve_kb = InlineKeyboardMarkup([
         [
@@ -508,9 +508,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(
             chat_id=user.id,
             text=(
-                "📸 <b>Screenshot yuboring</b>\n\n"
-                "Rasmiy saytda ovoz berib bo'lgach, ekran tasvirini (screenshot) yuboring.\n"
-                "Admin ko'rib chiqib tasdiqlaydi."
+                "📱 <b>SMS tasdiqlash</b>\n\n"
+                "OpenBudget saytida ovoz bergandan so'ng <b>1 soat ichida</b> rasmiy SMS xabar keladi:\n\n"
+                "<i>«Sizning ovoz berish yuzasidan so'rovingiz qabul qilindi...»</i>\n\n"
+                "O'sha <b>SMS xabarining screenshot ini</b> shu yerga yuboring.\n"
+                "Admin ko'rib chiqib tasdiqlaydi. ✅"
             ),
             parse_mode="HTML",
         )
