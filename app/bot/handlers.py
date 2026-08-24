@@ -152,12 +152,13 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     from app.models import SystemState
     with get_session() as session:
         last_check_state = session.get(SystemState, "last_check")
+        last_check_val = last_check_state.value if last_check_state else None
         from app.models import Listing as L
         total_listings = session.query(L).count()
         total_rules = session.query(WatchRule).count()
         total_notifs = session.query(Notification).count()
 
-    last_check = last_check_state.value[:16] if last_check_state else "Hali tekshirilmagan"
+    last_check = last_check_val[:16] if last_check_val else "Hali tekshirilmagan"
 
     coop_status = SOURCE_STATUS.get("cooperation", "unknown")
     new_coop_status = SOURCE_STATUS.get("new_cooperation", "unknown")
@@ -217,14 +218,12 @@ async def cmd_admins(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await update.message.reply_text("Hozircha bot foydalanuvchilari yo'q.")
         return
 
-    lines = ["👥 *Adminlar va foydalanuvchilar:*\n"]
+    lines = ["👥 <b>Adminlar va foydalanuvchilar:</b>\n"]
     for uid, uname, fname, is_adm in user_data:
         role = "👑 Asosiy admin" if uid == config.TELEGRAM_ADMIN_USER_ID else ("🔑 Admin" if is_adm else "👤 Foydalanuvchi")
         name = f"@{uname}" if uname else (fname or str(uid))
-        lines.append(f"{role}: {name} (`{uid}`)")
+        lines.append(f"{role}: {name} (<code>{uid}</code>)")
 
-    non_admins = [(uid, uname, fname) for uid, uname, fname, is_adm in user_data
-                  if not is_adm and uid != config.TELEGRAM_ADMIN_USER_ID]
     admins = [(uid, uname, fname) for uid, uname, fname, is_adm in user_data
               if is_adm and uid != config.TELEGRAM_ADMIN_USER_ID]
 
@@ -237,8 +236,8 @@ async def cmd_admins(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
     await update.message.reply_text(
         "\n".join(lines),
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(rows) if rows else None,
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(rows),
     )
 
 
