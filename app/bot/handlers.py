@@ -42,7 +42,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     _is_admin = is_main_admin(tg_user.id)
     await update.message.reply_text(
-        f"Salom, {tg_user.first_name}! 👋\n\n"
+        f"Assalomu alaykum, {tg_user.first_name}! 👋\n\n"
         "Men Uzbekiston davlat xarid saytlarini kuzataman:\n"
         "• cooperation.uz\n"
         "• new.cooperation.uz\n"
@@ -371,13 +371,40 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         source_filter = data.replace("latest:", "")
         src = None if source_filter == "all" else source_filter
 
+        from datetime import datetime, timedelta
+        from app.models import SystemState, Listing as ListingModel
+
         with get_session() as session:
-            listings = get_latest_listings(session, src, limit=10)
-            listing_data = [(lst.title, lst.source_url, lst.price) for lst in listings]
+            # Get last check time
+            last_check_state = session.get(SystemState, "last_check")
+            last_check_str = last_check_state.value if last_check_state else None
+
+            # Only show listings added in last 24 hours
+            cutoff = datetime.utcnow() - timedelta(hours=24)
+            q = session.query(ListingModel).filter(ListingModel.first_seen_at >= cutoff)
+            if src:
+                q = q.filter(ListingModel.source == src)
+            recent = q.order_by(ListingModel.first_seen_at.desc()).limit(10).all()
+            listing_data = [(lst.title, lst.source_url, lst.price, lst.first_seen_at) for lst in recent]
 
         if not listing_data:
-            await query.answer("Ma'lumot yo'q.")
-            await query.edit_message_text("🆕 Hozircha yangi savdo yo'q.")
+            # Show when last checked
+            if last_check_str:
+                try:
+                    lc = datetime.fromisoformat(last_check_str)
+                    diff = datetime.utcnow() - lc
+                    mins = int(diff.total_seconds() / 60)
+                    time_info = f"{mins} daqiqa oldin" if mins < 60 else f"{mins // 60} soat oldin"
+                except Exception:
+                    time_info = last_check_str[:16]
+            else:
+                time_info = "noma'lum"
+            await query.answer()
+            await query.edit_message_text(
+                f"🆕 Yangi savdo yo'q\n\n"
+                f"⏰ Oxirgi tekshiruv: {time_info}\n"
+                f"🔄 Keyingi tekshiruv {config.CHECK_INTERVAL_MINUTES} daqiqadan so'ng"
+            )
             return
 
         label = {
@@ -387,10 +414,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             "xt_xarid": "XT-Xarid",
         }.get(source_filter, source_filter)
         lines = [f"🆕 *Yangi savdolar — {label}:*\n"]
-        for title, source_url, price in listing_data:
+        for title, source_url, price, seen_at in listing_data:
+            time_str = seen_at.strftime("%H:%M") if seen_at else ""
             lines.append(
                 f"• [{truncate(title, 60)}]({source_url or '#'})\n"
                 f"  {format_price(price)}"
+                + (f" | 🕐 {time_str}" if time_str else "")
             )
         await query.answer()
         await query.edit_message_text(

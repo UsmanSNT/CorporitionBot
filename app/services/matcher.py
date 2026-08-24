@@ -1,5 +1,6 @@
 import logging
 from app.models import WatchRule, Listing
+from app.utils.transliterate import keyword_matches
 
 logger = logging.getLogger(__name__)
 
@@ -7,9 +8,14 @@ logger = logging.getLogger(__name__)
 def matches_rule(listing: Listing, rule: WatchRule) -> bool:
     """Return True if listing matches the watch rule filters."""
 
-    # Keyword (required)
+    # Keyword — script-independent match (Latin/Cyrillic/Russian)
     if rule.keyword:
-        if rule.keyword.lower() not in (listing.title or "").lower():
+        title = listing.title or ""
+        desc = listing.description or ""
+        seller = listing.seller_name or ""
+        if not (keyword_matches(rule.keyword, title)
+                or keyword_matches(rule.keyword, desc)
+                or keyword_matches(rule.keyword, seller)):
             return False
 
     # Price filters
