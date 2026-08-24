@@ -22,6 +22,10 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
+
+# httpx INFO logi har bir so'rovni to'liq URL bilan yozadi — unda bot tokeni bor.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
 
 
