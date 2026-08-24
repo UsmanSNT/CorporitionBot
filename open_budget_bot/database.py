@@ -32,6 +32,8 @@ def init_db():
             ("referred_by", "INTEGER"),
             ("deadline_reminded", "INTEGER NOT NULL DEFAULT 0"),
             ("mahalla", "TEXT"),
+            ("awaiting_proof", "INTEGER NOT NULL DEFAULT 0"),
+            ("pending_approval", "INTEGER NOT NULL DEFAULT 0"),
         ]:
             try:
                 conn.execute(f"ALTER TABLE users ADD COLUMN {col} {definition}")
@@ -91,6 +93,27 @@ def get_due_reminders() -> list[dict]:
               AND reminder_at <= datetime('now')
               AND voted = 0
         """).fetchall()
+        return [dict(r) for r in rows]
+
+
+def set_awaiting_proof(user_id: int, value: bool):
+    with get_conn() as conn:
+        conn.execute("UPDATE users SET awaiting_proof = ? WHERE user_id = ?", (1 if value else 0, user_id))
+        conn.commit()
+
+
+def set_pending_approval(user_id: int, value: bool):
+    with get_conn() as conn:
+        conn.execute("UPDATE users SET pending_approval = ? WHERE user_id = ?", (1 if value else 0, user_id))
+        conn.commit()
+
+
+def get_recent_users(limit: int = 20) -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT user_id, username, first_name, started_at, voted, pending_approval
+            FROM users ORDER BY started_at DESC LIMIT ?
+        """, (limit,)).fetchall()
         return [dict(r) for r in rows]
 
 
@@ -159,8 +182,9 @@ def get_stats() -> dict:
         voted = conn.execute("SELECT COUNT(*) FROM users WHERE voted = 1").fetchone()[0]
         reminded = conn.execute("SELECT COUNT(*) FROM users WHERE reminder_at IS NOT NULL").fetchone()[0]
         via_referral = conn.execute("SELECT COUNT(*) FROM users WHERE referred_by IS NOT NULL").fetchone()[0]
+        pending = conn.execute("SELECT COUNT(*) FROM users WHERE pending_approval = 1").fetchone()[0]
     return {"total": total, "clicked": clicked, "voted": voted,
-            "reminded": reminded, "via_referral": via_referral}
+            "reminded": reminded, "via_referral": via_referral, "pending": pending}
 
 
 def get_all_user_ids() -> list[int]:
