@@ -1,7 +1,9 @@
 import logging
+import os
+import glob as glob_module
 from datetime import datetime, timedelta
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 from telegram.ext import ContextTypes, Application
 
 from config import config
@@ -40,16 +42,48 @@ def _reminder_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
+def _get_images() -> list[str]:
+    if not config.IMAGE_DIR or not os.path.isdir(config.IMAGE_DIR):
+        return []
+    exts = ("*.jpg", "*.jpeg", "*.png")
+    files = []
+    for ext in exts:
+        files.extend(glob_module.glob(os.path.join(config.IMAGE_DIR, ext)))
+    return sorted(files)[:10]
+
+
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     db.upsert_user(user.id, user.username, user.first_name)
 
-    text = (
+    caption = (
         f"Assalomu alaykum, {user.first_name}! 👋\n\n"
         + _project_text()
         + "\n\n👇 Quyidagi tugmadan rasmiy saytga o'tib ovoz bering:"
     )
-    await update.message.reply_text(text, parse_mode="HTML", reply_markup=_main_keyboard())
+
+    images = _get_images()
+    if images:
+        if len(images) == 1:
+            with open(images[0], "rb") as f:
+                await update.message.reply_photo(
+                    photo=f, caption=caption, parse_mode="HTML", reply_markup=_main_keyboard()
+                )
+        else:
+            media = []
+            for i, path in enumerate(images):
+                with open(path, "rb") as f:
+                    data = f.read()
+                if i == 0:
+                    media.append(InputMediaPhoto(data, caption=caption, parse_mode="HTML"))
+                else:
+                    media.append(InputMediaPhoto(data))
+            await update.message.reply_media_group(media=media)
+            await update.message.reply_text(
+                "👇 Rasmiy saytga o'tib ovoz bering:", reply_markup=_main_keyboard()
+            )
+    else:
+        await update.message.reply_text(caption, parse_mode="HTML", reply_markup=_main_keyboard())
 
 
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):

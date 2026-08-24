@@ -17,6 +17,7 @@ class Config:
     VOTING_DEADLINE: str = os.getenv("OB_VOTING_DEADLINE", "")
     TIMEZONE: str = os.getenv("OB_TIMEZONE", "Asia/Tashkent")
     DB_PATH: str = os.getenv("OB_DB_PATH", "data/open_budget.db")
+    IMAGE_DIR: str = os.getenv("OB_IMAGE_DIR", "")
 
     def validate(self):
         if not self.BOT_TOKEN:
