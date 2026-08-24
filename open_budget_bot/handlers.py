@@ -75,6 +75,14 @@ def _get_images() -> list[str]:
     return sorted(files)[:10]
 
 
+def _is_admin(user_id: int) -> bool:
+    return user_id in config.ADMIN_IDS or db.is_db_admin(user_id)
+
+
+def _is_main_admin(user_id: int) -> bool:
+    return user_id in config.ADMIN_IDS
+
+
 async def _notify_admins(bot, text: str, **kwargs):
     for admin_id in config.ADMIN_IDS:
         try:
@@ -174,7 +182,7 @@ async def cmd_holat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    if user.id not in config.ADMIN_IDS:
+    if not _is_admin(user.id):
         await update.message.reply_text("Ruxsat yo'q.")
         return
     stats = db.get_stats()
@@ -205,7 +213,7 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    if user.id not in config.ADMIN_IDS:
+    if not _is_admin(user.id):
         await update.message.reply_text("Ruxsat yo'q.")
         return
     users = db.get_recent_users(30)
@@ -238,7 +246,7 @@ def _format_top10() -> str:
 
 async def cmd_top(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    if user.id not in config.ADMIN_IDS:
+    if not _is_admin(user.id):
         return
     text = _format_top10() or "Hali ma'lumot yo'q."
     await update.message.reply_text(text, parse_mode="HTML")
@@ -246,7 +254,7 @@ async def cmd_top(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    if user.id not in config.ADMIN_IDS:
+    if not _is_admin(user.id):
         return
     text = " ".join(context.args) if context.args else ""
     if not text:
@@ -266,7 +274,7 @@ async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_announce_top(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    if user.id not in config.ADMIN_IDS:
+    if not _is_admin(user.id):
         return
     top_text = _format_top10()
     if not top_text:
@@ -287,6 +295,83 @@ async def cmd_announce_top(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             fail += 1
     await msg.edit_text(f"✅ {ok} ta yuborildi\n❌ {fail} ta yetkazilmadi")
+
+
+async def cmd_admins(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not _is_admin(user.id):
+        await update.message.reply_text("Ruxsat yo'q.")
+        return
+    db_admins = db.get_admins()
+    lines = ["👥 <b>Adminlar ro'yxati</b>\n"]
+    lines.append("⭐ <b>Asosiy adminlar (config):</b>")
+    for aid in config.ADMIN_IDS:
+        lines.append(f"  • ID: <code>{aid}</code>")
+    if db_admins:
+        lines.append("\n➕ <b>Qo'shilgan adminlar:</b>")
+        for row in db_admins:
+            name = row["first_name"] or "—"
+            uname = f"@{row['username']}" if row["username"] else f"ID:{row['user_id']}"
+            lines.append(f"  • {name} ({uname})")
+    if _is_main_admin(user.id):
+        lines.append("\n<i>Admin qo'shish: /addadmin &lt;user_id&gt;</i>")
+        lines.append("<i>Admin olish: /removeadmin &lt;user_id&gt;</i>")
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+
+
+async def cmd_addadmin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not _is_main_admin(user.id):
+        await update.message.reply_text("Faqat asosiy admin admin qo'sha oladi.")
+        return
+    if not context.args:
+        await update.message.reply_text("Foydalanish:\n<code>/addadmin 123456789</code>", parse_mode="HTML")
+        return
+    try:
+        target_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("User ID raqam bo'lishi kerak.")
+        return
+    if target_id in config.ADMIN_IDS:
+        await update.message.reply_text("Bu foydalanuvchi allaqachon asosiy admin.")
+        return
+    target = db.get_user(target_id)
+    if not target:
+        await update.message.reply_text(
+            f"ID <code>{target_id}</code> topilmadi. Foydalanuvchi avval botga /start bosishi kerak.",
+            parse_mode="HTML",
+        )
+        return
+    db.set_admin(target_id, True)
+    name = target["first_name"] or str(target_id)
+    await update.message.reply_text(f"✅ {name} adminga qo'shildi.")
+    try:
+        await context.bot.send_message(
+            chat_id=target_id,
+            text="🎉 Siz adminga qo'shildingiz!\n\nAdmin buyruqlar: /stats /users /top /broadcast",
+        )
+    except Exception:
+        pass
+
+
+async def cmd_removeadmin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not _is_main_admin(user.id):
+        await update.message.reply_text("Faqat asosiy admin adminni olib tashlaydi.")
+        return
+    if not context.args:
+        await update.message.reply_text("Foydalanish:\n<code>/removeadmin 123456789</code>", parse_mode="HTML")
+        return
+    try:
+        target_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("User ID raqam bo'lishi kerak.")
+        return
+    if target_id in config.ADMIN_IDS:
+        await update.message.reply_text("Asosiy adminni olib bo'lmaydi.")
+        return
+    db.set_admin(target_id, False)
+    await update.message.reply_text(f"❌ ID <code>{target_id}</code> adminlikdan olindi.", parse_mode="HTML")
 
 
 async def cmd_delete_me(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -359,7 +444,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # admin approval callbacks
     if data.startswith("approve:") or data.startswith("reject:"):
-        if user.id not in config.ADMIN_IDS:
+        if not _is_admin(user.id):
             await query.answer("Ruxsat yo'q.")
             return
         action, uid_str = data.split(":", 1)

@@ -34,6 +34,7 @@ def init_db():
             ("mahalla", "TEXT"),
             ("awaiting_proof", "INTEGER NOT NULL DEFAULT 0"),
             ("pending_approval", "INTEGER NOT NULL DEFAULT 0"),
+            ("is_admin", "INTEGER NOT NULL DEFAULT 0"),
         ]:
             try:
                 conn.execute(f"ALTER TABLE users ADD COLUMN {col} {definition}")
@@ -106,6 +107,26 @@ def set_pending_approval(user_id: int, value: bool):
     with get_conn() as conn:
         conn.execute("UPDATE users SET pending_approval = ? WHERE user_id = ?", (1 if value else 0, user_id))
         conn.commit()
+
+
+def set_admin(user_id: int, value: bool):
+    with get_conn() as conn:
+        conn.execute("UPDATE users SET is_admin = ? WHERE user_id = ?", (1 if value else 0, user_id))
+        conn.commit()
+
+
+def is_db_admin(user_id: int) -> bool:
+    with get_conn() as conn:
+        row = conn.execute("SELECT is_admin FROM users WHERE user_id = ?", (user_id,)).fetchone()
+        return bool(row and row[0])
+
+
+def get_admins() -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT user_id, username, first_name FROM users WHERE is_admin = 1"
+        ).fetchall()
+        return [dict(r) for r in rows]
 
 
 def get_recent_users(limit: int = 20) -> list[dict]:
