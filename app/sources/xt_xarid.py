@@ -57,19 +57,23 @@ class XtXaridSource(BaseSource):
             payload = {"id": 1, "jsonrpc": "2.0", "method": "ref", "params": params}
             try:
                 response = await self.client.post(API_URL, json=payload)
+                if response.status_code in (400, 422) and order is not None:
+                    logger.warning(f"xt-xarid.uz {ref} order='{order}': {response.status_code}, retrying without order")
+                    continue
                 response.raise_for_status()
                 data = response.json()
                 if "result" in data and isinstance(data["result"], list):
-                    if order:
-                        logger.debug(f"xt-xarid.uz {ref}: ordered by '{order}'")
                     return data["result"]
                 if "error" in data:
                     msg = data["error"].get("message", "")
                     logger.warning(f"xt-xarid.uz {ref} order='{order}': {msg[:100]}")
-                    if order:
-                        continue  # retry without this order field
+                    if order is not None:
+                        continue
                     return []
             except Exception as e:
+                if order is not None:
+                    logger.warning(f"xt-xarid.uz {ref} order='{order}' failed: {e}, retrying")
+                    continue
                 logger.error(f"xt-xarid.uz {ref} rpc error: {e}")
                 raise
         return []
