@@ -25,10 +25,15 @@ def _project_text() -> str:
         lines.append(f"\n{config.PROJECT_DESCRIPTION}")
     if config.VOTING_DEADLINE:
         lines.append(f"\n⏰ Muddati: <b>{config.VOTING_DEADLINE}</b>")
+    # Rasmiy sayt ovozlarni kechikib yangilaydi — 0 bo'lsa ko'rsatmaymiz,
+    # aks holda odamlar "ovozim hisobga olinmadi" deb o'ylaydi.
     if config.INITIATIVE_UUID:
         count = fetch_vote_count(config.INITIATIVE_UUID)
-        if count is not None:
-            lines.append(f"🗳 Rasmiy ovozlar: <b>{count}</b>")
+        if count:
+            lines.append(f"\n🗳 Rasmiy saytdagi ovozlar: <b>{count}</b>")
+    voted = db.get_stats()["voted"]
+    if voted:
+        lines.append(f"✅ Bot orqali tasdiqlangan: <b>{voted}</b> kishi")
     return "\n".join(lines)
 
 
@@ -184,6 +189,8 @@ async def cmd_holat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         real_count = fetch_vote_count(config.INITIATIVE_UUID)
         if real_count is not None:
             lines.append(f"\n🗳 <b>Rasmiy saytdagi ovozlar: {real_count}</b>")
+            if real_count == 0:
+                lines.append("<i>(sayt hisobni kechikib yangilaydi)</i>")
     lines.append(f"\n⏰ Muddatga: <b>{deadline_str}</b>")
     await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
