@@ -18,4 +18,5 @@ jobs:
             cd /home/ubuntu/cooperation-watcher-bot
             git pull origin main
             sudo systemctl restart cooperation-watcher
+            sudo systemctl restart open-budget-bot
             echo "Deploy OK: $(date)"
