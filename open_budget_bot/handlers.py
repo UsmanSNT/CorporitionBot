@@ -1,3 +1,5 @@
+import csv
+import io
 import logging
 import os
 import glob as glob_module
@@ -441,6 +443,31 @@ async def cmd_pending(update: Update, context: ContextTypes.DEFAULT_TYPE):
         uname = f"@{row['username']}" if row["username"] else f"ID:{row['user_id']}"
         lines.append(f"• {name} ({uname})\n  ID: <code>{row['user_id']}</code>")
     await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+
+
+async def cmd_export(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not _is_admin(user.id):
+        await update.message.reply_text("Ruxsat yo'q.")
+        return
+    rows = db.get_voted_users()
+    if not rows:
+        await update.message.reply_text("Hali tasdiqlangan ovoz beruvchi yo'q.")
+        return
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["user_id", "username", "first_name", "mahalla", "voted_at", "referred_by"])
+    for row in rows:
+        writer.writerow([
+            row["user_id"], row["username"] or "", row["first_name"] or "",
+            row["mahalla"] or "", row["voted_at"] or "", row["referred_by"] or "",
+        ])
+    data = buf.getvalue().encode("utf-8-sig")
+    filename = f"ovoz_beruvchilar_{datetime.now():%Y_%m_%d_%H%M}.csv"
+    await update.message.reply_document(
+        document=io.BytesIO(data), filename=filename,
+        caption=f"✅ Tasdiqlangan ovoz beruvchilar: {len(rows)} ta",
+    )
 
 
 # ── proof flow ────────────────────────────────────────────────────────────────

@@ -245,6 +245,16 @@ def get_referral_rank(user_id: int) -> tuple[int, int]:
         return count, rank
 
 
+def get_voted_users() -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT user_id, username, first_name, mahalla, voted_at, referred_by
+            FROM users WHERE voted = 1
+            ORDER BY voted_at ASC
+        """).fetchall()
+        return [dict(r) for r in rows]
+
+
 def get_pending_users() -> list[dict]:
     with get_conn() as conn:
         rows = conn.execute("""

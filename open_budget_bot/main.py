@@ -14,7 +14,7 @@ from handlers import (
     cmd_start, cmd_holat, cmd_stats, cmd_users, cmd_top,
     cmd_broadcast, cmd_announce_top,
     cmd_admins, cmd_addadmin, cmd_removeadmin, cmd_delete_me,
-    cmd_mening, cmd_pending,
+    cmd_mening, cmd_pending, cmd_export,
     handle_callback, handle_photo,
     send_due_reminders, send_deadline_reminders,
 )
@@ -77,6 +77,7 @@ def main():
     app.add_handler(CommandHandler("delete_me", cmd_delete_me))
     app.add_handler(CommandHandler("mening", cmd_mening))
     app.add_handler(CommandHandler("pending", cmd_pending))
+    app.add_handler(CommandHandler("export", cmd_export))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(CallbackQueryHandler(handle_callback))
 
