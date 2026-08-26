@@ -224,3 +224,32 @@ def get_user(user_id: int) -> dict | None:
     with get_conn() as conn:
         row = conn.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)).fetchone()
         return dict(row) if row else None
+
+
+def get_referral_rank(user_id: int) -> tuple[int, int]:
+    """Returns (referral_count, rank) for user. rank=0 when count=0."""
+    with get_conn() as conn:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM users WHERE referred_by = ?", (user_id,)
+        ).fetchone()[0]
+        if count == 0:
+            return 0, 0
+        rank = conn.execute("""
+            SELECT COUNT(*) + 1 FROM (
+                SELECT referred_by, COUNT(*) AS cnt
+                FROM users WHERE referred_by IS NOT NULL
+                GROUP BY referred_by
+                HAVING cnt > (SELECT COUNT(*) FROM users WHERE referred_by = ?)
+            )
+        """, (user_id,)).fetchone()[0]
+        return count, rank
+
+
+def get_pending_users() -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT user_id, username, first_name, started_at
+            FROM users WHERE pending_approval = 1
+            ORDER BY started_at ASC
+        """).fetchall()
+        return [dict(r) for r in rows]
