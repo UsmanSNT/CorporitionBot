@@ -66,7 +66,10 @@ def _voted_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🗳 Rasmiy sayt", url=config.VOTE_URL)],
         [InlineKeyboardButton("📢 Do'stlarga ulash", callback_data="share")],
-        [InlineKeyboardButton("🏘 Mahalla reytingi", callback_data="rating")],
+        [
+            InlineKeyboardButton("🏘 Mahalla reytingi", callback_data="rating"),
+            InlineKeyboardButton("🏆 Top faollar", callback_data="leaderboard"),
+        ],
     ])
 
 
@@ -394,6 +397,52 @@ async def cmd_delete_me(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Ma'lumotlaringiz o'chirildi. /start")
 
 
+async def cmd_mening(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    db.upsert_user(user.id, user.username, user.first_name)
+    row = db.get_user(user.id)
+    ref_count, rank = db.get_referral_rank(user.id)
+
+    if row["voted"]:
+        voted_icon = "✅ Ovoz bergan"
+    elif row["pending_approval"]:
+        voted_icon = "⏳ Tasdiq kutmoqda"
+    else:
+        voted_icon = "❌ Ovoz bermagan"
+
+    lines = [f"👤 <b>{user.first_name}</b>\n", f"🗳 Holat: {voted_icon}"]
+    if row.get("voted_at"):
+        lines.append(f"📅 Tasdiqlangan: {row['voted_at'][:10]}")
+    if row.get("mahalla"):
+        lines.append(f"🏘 Mahalla: {row['mahalla']}")
+    lines.append(f"\n📢 Taklif qilganlar: <b>{ref_count}</b> kishi")
+    if rank > 0:
+        lines.append(f"🏆 Reyting: <b>#{rank}</b>-o'rin")
+
+    ref_link = _referral_link(user.id)
+    if ref_link:
+        lines.append(f"\n🔗 Taklif havolasi:\n<code>{ref_link}</code>")
+
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+
+
+async def cmd_pending(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not _is_admin(user.id):
+        await update.message.reply_text("Ruxsat yo'q.")
+        return
+    pending = db.get_pending_users()
+    if not pending:
+        await update.message.reply_text("✅ Tasdiq kutayotgan foydalanuvchi yo'q.")
+        return
+    lines = [f"⏳ <b>Tasdiq kutayotganlar: {len(pending)} ta</b>\n"]
+    for row in pending:
+        name = row["first_name"] or "—"
+        uname = f"@{row['username']}" if row["username"] else f"ID:{row['user_id']}"
+        lines.append(f"• {name} ({uname})\n  ID: <code>{row['user_id']}</code>")
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+
+
 # ── proof flow ────────────────────────────────────────────────────────────────
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -536,13 +585,17 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer()
         ref_link = _referral_link(user.id)
         link = ref_link if ref_link else config.VOTE_URL
+        ref_count, rank = db.get_referral_rank(user.id)
         text = (
             f"📣 <b>Siz ham ovoz bering!</b>\n\n"
             f"{config.PROJECT_TITLE}\n📍 {config.PROJECT_REGION}\n\n"
             f"👉 {link}\n\n⏰ {config.VOTING_DEADLINE}"
         )
+        my_stats = ""
+        if ref_count > 0:
+            my_stats = f"\n\n📊 Siz: <b>{ref_count}</b> kishi taklif qildingiz (#{rank}-o'rin)"
         await query.edit_message_text(
-            text + "\n\n<i>Nusxalab do'stlaringizga yuboring.</i>",
+            text + my_stats + "\n\n<i>Nusxalab do'stlaringizga yuboring.</i>",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Orqaga", callback_data="back")]]),
         )
@@ -555,10 +608,33 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         lines = ["🏘 <b>Mahalla reytingi</b>\n"]
         medals = ["🥇", "🥈", "🥉"]
+        user_mahalla = (user_row or {}).get("mahalla")
         for i, row in enumerate(stats):
             icon = medals[i] if i < 3 else f"{i+1}."
-            lines.append(f"{icon} <b>{row['mahalla']}</b> — {row['total']} kishi")
+            marker = " 👈" if row["mahalla"] == user_mahalla else ""
+            lines.append(f"{icon} <b>{row['mahalla']}</b> — {row['total']} kishi{marker}")
         lines.append(f"\n✅ Jami ovoz: <b>{sum(r['voted_count'] for r in stats)}</b>")
+        await query.edit_message_text(
+            "\n".join(lines), parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Orqaga", callback_data="back")]]),
+        )
+
+    elif data == "leaderboard":
+        await query.answer()
+        top = db.get_top_referrers(10)
+        if not top:
+            await query.answer("Hali ma'lumot yo'q.", show_alert=True)
+            return
+        ref_count, my_rank = db.get_referral_rank(user.id)
+        medals = ["🥇", "🥈", "🥉"]
+        lines = ["🏆 <b>Top faollar</b>\n"]
+        for i, row in enumerate(top):
+            icon = medals[i] if i < 3 else f"{i+1}."
+            name = row["first_name"] or str(row["user_id"])
+            marker = " 👈" if row["user_id"] == user.id else ""
+            lines.append(f"{icon} <b>{name}</b> — {row['referral_count']} kishi{marker}")
+        if ref_count > 0 and my_rank > 10:
+            lines.append(f"\n👤 Sizning o'rningiz: #{my_rank} ({ref_count} kishi)")
         await query.edit_message_text(
             "\n".join(lines), parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Orqaga", callback_data="back")]]),
